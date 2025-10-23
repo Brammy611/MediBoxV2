@@ -1,0 +1,8 @@
+Flask-RESTful
+Flask-JWT-Extended
+requests
+numpy
+pandas
+scikit-learn
+tensorflow
+pymongo
