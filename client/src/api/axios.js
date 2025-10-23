@@ -1,7 +1,10 @@
 import axios from 'axios';
 
-// ✅ Jangan set baseURL - biarkan proxy yang handle
+const envBaseUrl = import.meta.env.VITE_API_URL || '/api';
+const sanitizedBaseUrl = envBaseUrl.replace(/\/$/, '');
+
 const api = axios.create({
+  baseURL: sanitizedBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },

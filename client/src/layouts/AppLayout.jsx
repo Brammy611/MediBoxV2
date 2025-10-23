@@ -20,16 +20,26 @@ const linksByRole = {
 
 const AppLayout = () => {
   const { user, role, clearAuth } = useAuth();
-  const { ui, reminders, healthReports, refillRequests } = useStore((state) => ({
+  const {
+    ui,
+    reminders,
+    healthReports,
+    refillRequests,
+    adherenceLogs,
+  } = useStore((state) => ({
     ui: state.ui,
     reminders: state.entities.reminders,
     healthReports: state.entities.healthReports,
     refillRequests: state.entities.refillRequests,
+    adherenceLogs: state.entities.adherenceLogs,
   }));
   const [navOpen, setNavOpen] = useState(false);
 
   // 🧭 Tentukan navigasi berdasarkan role
   const navLinks = useMemo(() => {
+    if (role === 'user') {
+      return [];
+    }
     const defaultLinks = [{ to: '/', label: 'Dashboard', exact: true }];
     if (!role) return defaultLinks;
     return linksByRole[role] || defaultLinks;
@@ -67,8 +77,9 @@ const AppLayout = () => {
     }).length;
 
     const safeHealth = Array.isArray(healthReports) ? healthReports : [];
-    const latestHealth =
-      safeHealth.length > 0 ? safeHealth[0] : null;
+    const latestHealth = safeHealth.length > 0 ? safeHealth[0] : null;
+
+    const safeLogs = Array.isArray(adherenceLogs) ? adherenceLogs : [];
 
     return {
       nextReminder: mappedReminders[0] || null,
@@ -76,8 +87,9 @@ const AppLayout = () => {
       overdueCount,
       pendingRefills,
       healthRisk: (latestHealth?.adherence_risk || '').toLowerCase(),
+      historyEntries: safeLogs.length,
     };
-  }, [healthReports, refillRequests, reminders]);
+  }, [adherenceLogs, healthReports, refillRequests, reminders]);
 
   // 🧑‍💻 Identitas user
   const displayName = user?.name || user?.username || user?.email || 'Guest user';
@@ -107,11 +119,37 @@ const AppLayout = () => {
 
   const closeNavigation = () => setNavOpen(false);
 
-  // 🪄 Debug log (opsional, bisa kamu hapus nanti)
-  console.log('reminders:', reminders);
-  console.log('healthReports:', healthReports);
-  console.log('refillRequests:', refillRequests);
-  console.log('ui.notifications:', ui?.notifications);
+  const isUserRole = role === 'user';
+
+  const userSidebarSections = useMemo(() => (
+    [
+      {
+        id: 'dashboard',
+        title: 'Dashboard',
+        description: 'Medication history overview',
+        highlight: `${metrics.historyEntries} records`,
+      },
+      {
+        id: 'schedule',
+        title: 'Schedule',
+        description: 'Upcoming reminders & alerts',
+        highlight: `${metrics.upcomingCount} upcoming`,
+        badge: metrics.overdueCount > 0 ? `${metrics.overdueCount} overdue` : undefined,
+      },
+      {
+        id: 'checkup',
+        title: 'Checkup',
+        description: 'Daily health questionnaire',
+        highlight: metrics.healthRisk ? metrics.healthRisk.toUpperCase() : 'N/A',
+      },
+      {
+        id: 'profile',
+        title: 'Profile',
+        description: 'Personal health context',
+        highlight: user?.email || displayName,
+      },
+    ]
+  ), [displayName, metrics, user?.email]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-black text-gray-100">
@@ -200,36 +238,65 @@ const AppLayout = () => {
                 navOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
               }`}
             >
-              <nav className="space-y-2">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Navigation</p>
-                {navLinks.map((link) => (
-                  <NavLink
-                    key={link.to}
-                    to={link.to}
-                    end={link.exact}
-                    onClick={closeNavigation}
-                    className={({ isActive }) =>
-                      `flex items-center justify-between rounded-xl border px-3 py-2 text-sm font-medium transition ${
-                        isActive
-                          ? 'border-blue-500 bg-blue-600 text-white shadow-lg'
-                          : 'border-transparent bg-gray-800 text-gray-300 hover:border-blue-500 hover:bg-gray-800 hover:text-white'
-                      }`
-                    }
-                  >
-                    <span>{link.label}</span>
-                    <svg
-                      className="h-4 w-4 opacity-50"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
+              {isUserRole ? (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Your sections</p>
+                  {userSidebarSections.map((section) => (
+                    <a
+                      key={section.id}
+                      href={`#${section.id}`}
+                      onClick={closeNavigation}
+                      className="block rounded-xl border border-transparent bg-gray-800 px-4 py-3 text-sm text-gray-200 transition hover:border-blue-500 hover:bg-gray-800 hover:text-white"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </NavLink>
-                ))}
-              </nav>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-white">{section.title}</p>
+                          <p className="text-xs text-gray-400">{section.description}</p>
+                        </div>
+                        <div className="text-right text-xs font-semibold uppercase tracking-wide text-blue-300">
+                          {section.highlight}
+                        </div>
+                      </div>
+                      {section.badge && (
+                        <p className="mt-2 inline-flex rounded-full bg-red-500 bg-opacity-10 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wide text-red-300">
+                          {section.badge}
+                        </p>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <nav className="space-y-2">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Navigation</p>
+                  {navLinks.map((link) => (
+                    <NavLink
+                      key={link.to}
+                      to={link.to}
+                      end={link.exact}
+                      onClick={closeNavigation}
+                      className={({ isActive }) =>
+                        `flex items-center justify-between rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                          isActive
+                            ? 'border-blue-500 bg-blue-600 text-white shadow-lg'
+                            : 'border-transparent bg-gray-800 text-gray-300 hover:border-blue-500 hover:bg-gray-800 hover:text-white'
+                        }`
+                      }
+                    >
+                      <span>{link.label}</span>
+                      <svg
+                        className="h-4 w-4 opacity-50"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </NavLink>
+                  ))}
+                </nav>
+              )}
 
               {/* Snapshot ringkasan */}
               <div className="mt-8 space-y-3 text-sm text-gray-400">

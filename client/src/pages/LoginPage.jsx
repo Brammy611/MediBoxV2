@@ -23,8 +23,9 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-  const { data } = await api.post('api/auth/login', { email, password });
+      const { data } = await api.post('auth/login', { email, password });
       const token = data?.access_token || data?.token;
+      const resolvedRole = data?.user?.role || data?.role || null;
       if (!token) {
         throw new Error('Token missing from response');
       }
@@ -33,11 +34,45 @@ const LoginPage = () => {
       setAuth({
         token,
         user: data?.user || { email },
-        role: data?.user?.role || data?.role || null,
+        role: resolvedRole,
         loading: false,
       });
 
-      navigate(fromPath, { replace: true });
+      const roleHomes = {
+        user: '/',
+        family: '/family',
+        pharmacist: '/pharmacist',
+      };
+
+      const requestedPath = location.state?.from?.pathname;
+      const roleDefault = roleHomes[resolvedRole] || '/';
+      const isRequestedPathAllowed = (() => {
+        if (!requestedPath || requestedPath === '/login') {
+          return false;
+        }
+        if (resolvedRole === 'user') {
+          return requestedPath === '/' || requestedPath.startsWith('/user');
+        }
+        if (resolvedRole === 'family') {
+          return requestedPath.startsWith('/family');
+        }
+        if (resolvedRole === 'pharmacist') {
+          return requestedPath.startsWith('/pharmacist');
+        }
+        return false;
+      })();
+
+      const targetPath = (() => {
+        if (isRequestedPathAllowed) {
+          return requestedPath;
+        }
+        if (resolvedRole === 'user' && fromPath === '/') {
+          return '/';
+        }
+        return roleDefault;
+      })();
+
+      navigate(targetPath, { replace: true });
     } catch (err) {
       console.error('Login failed', err);
       setError(

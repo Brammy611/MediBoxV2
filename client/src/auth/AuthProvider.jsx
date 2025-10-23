@@ -42,7 +42,7 @@ const AuthProvider = ({ children }) => {
 
       try {
         setAuth({ loading: true, token });
-  const { data } = await api.get('auth/me');
+        const { data } = await api.get('auth/me');
         const resolvedRole = data?.user?.role || data?.role || auth.role;
         setAuth({
           user: data?.user || null,

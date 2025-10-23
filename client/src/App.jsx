@@ -23,9 +23,30 @@ const App = () => (
             </ProtectedRoute>
           )}
         >
-          <Route index element={<UserDashboard />} />
-          <Route path="family" element={<FamilyDashboard />} />
-          <Route path="pharmacist" element={<PharmacistDashboard />} />
+          <Route
+            index
+            element={(
+              <ProtectedRoute allowedRoles={["user"]}>
+                <UserDashboard />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="family"
+            element={(
+              <ProtectedRoute allowedRoles={["family"]}>
+                <FamilyDashboard />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="pharmacist"
+            element={(
+              <ProtectedRoute allowedRoles={["pharmacist"]}>
+                <PharmacistDashboard />
+              </ProtectedRoute>
+            )}
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

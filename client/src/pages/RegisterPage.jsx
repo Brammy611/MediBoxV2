@@ -40,9 +40,8 @@ const RegisterPage = () => {
     setLoading(true);
     try {
       console.log('📝 Registering user:', { email, role });
-      
-      // ✅ PERBAIKAN: Gunakan endpoint yang benar dengan prefix /api/auth
-      const response = await api.post('/api/auth/register', {
+
+      const response = await api.post('auth/register', {
         username: email, // ✅ Backend expect 'username', bukan 'email'
         email: email,
         password,

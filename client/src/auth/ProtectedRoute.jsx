@@ -3,6 +3,12 @@ import PropTypes from 'prop-types';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 
+const roleHome = {
+  user: '/',
+  family: '/family',
+  pharmacist: '/pharmacist',
+};
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const location = useLocation();
   const { isAuthenticated, role, loading } = useAuth();
@@ -16,7 +22,8 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   }
 
   if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-    return <Navigate to="/" replace state={{ from: location, reason: 'unauthorized' }} />;
+    const fallback = roleHome[role] || '/';
+    return <Navigate to={fallback} replace state={{ from: location, reason: 'unauthorized' }} />;
   }
 
   return children;
