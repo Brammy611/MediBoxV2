@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 
-const MedicineSchedule = ({ reminders, loading, onConfirmIntake }) => {
+const MedicineSchedule = ({ reminders, loading, onUpdateStatus }) => {
     const items = useMemo(() => (Array.isArray(reminders) ? reminders : []), [reminders]);
 
     const formatTime = (value) => {
@@ -74,14 +74,23 @@ const MedicineSchedule = ({ reminders, loading, onConfirmIntake }) => {
                                         <p className="text-sm font-semibold text-gray-900">{reminder.medicine_name || reminder.name || 'Scheduled dose'}</p>
                                         <p className="text-xs text-gray-500">{timelineTime} · {doseLabel}</p>
                                     </div>
-                                    {onConfirmIntake && (
-                                        <button
-                                            type="button"
-                                            onClick={() => onConfirmIntake(reminder)}
-                                            className="inline-flex items-center rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
-                                        >
-                                            Mark taken
-                                        </button>
+                                    {onUpdateStatus && (
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => onUpdateStatus(reminder, 'taken')}
+                                                className="inline-flex items-center rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
+                                            >
+                                                Mark taken
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => onUpdateStatus(reminder, 'missed')}
+                                                className="inline-flex items-center rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+                                            >
+                                                Mark missed
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
                                 {reminder.notes && (
@@ -113,13 +122,13 @@ MedicineSchedule.propTypes = {
         dose: PropTypes.string,
     })),
     loading: PropTypes.bool,
-    onConfirmIntake: PropTypes.func,
+    onUpdateStatus: PropTypes.func,
 };
 
 MedicineSchedule.defaultProps = {
     reminders: [],
     loading: false,
-    onConfirmIntake: undefined,
+    onUpdateStatus: undefined,
 };
 
 export default MedicineSchedule;

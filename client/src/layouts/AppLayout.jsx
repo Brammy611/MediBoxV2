@@ -12,8 +12,8 @@ const linksByRole = {
     { to: '/profile', label: 'Profile' },
   ],
   family: [
-    { to: '/family', label: 'Family Dashboard', exact: true },
-    { to: '/dashboard', label: 'User Dashboard' },
+    { to: '/family/dashboard', label: 'Family Dashboard', exact: true },
+    { to: '/family/profile', label: 'Family Profile' },
   ],
   pharmacist: [
     { to: '/pharmacist', label: 'Pharmacist Dashboard', exact: true },

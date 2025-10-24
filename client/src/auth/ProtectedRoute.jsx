@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider';
 
 const roleHome = {
   user: '/dashboard',
-  family: '/family',
+  family: '/family/dashboard',
   pharmacist: '/pharmacist',
 };
 

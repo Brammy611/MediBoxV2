@@ -1,82 +1,146 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import PropTypes from 'prop-types';
+import axios from 'axios';
 import api from '../api/axios';
 
-const QUESTION_LIBRARY = [
+const FALLBACK_QUESTIONS = [
   {
-    keyword: 'diabetes',
-    prompts: [
-      'Did you monitor your blood sugar today?',
-      'Have you taken your diabetes medication as prescribed?',
-      'Have you experienced unusual thirst or fatigue today?',
-    ],
+    id: 'fallback-0',
+    text: 'Did you take all scheduled medications today?',
+    type: 'yesNo',
   },
   {
-    keyword: 'hypertension',
-    prompts: [
-      'Have you taken your blood pressure medicine today?',
-      'Did you feel dizzy or experience headaches today?',
-      'Did you measure your blood pressure within the last 24 hours?',
-    ],
+    id: 'fallback-1',
+    text: 'How severe is your discomfort right now? (1 = none, 10 = severe)',
+    type: 'scale',
+    min: 1,
+    max: 10,
+    step: 1,
   },
   {
-    keyword: 'heart',
-    prompts: [
-      'Did you feel any chest discomfort today?',
-      'Have you noticed shortness of breath during normal activity?',
-      'Did you take your heart medication on schedule?',
-    ],
+    id: 'fallback-2',
+    text: 'List any unusual symptoms or feelings today.',
+    type: 'text',
   },
   {
-    keyword: 'asthma',
-    prompts: [
-      'Did you experience wheezing or tightness in your chest today?',
-      'Did you need to use your inhaler today?',
-      'Are you currently experiencing any breathing difficulty?',
-    ],
+    id: 'fallback-3',
+    text: 'Which of these symptoms did you notice today?',
+    type: 'multiple',
+    options: ['Dizziness', 'Nausea', 'Headache', 'Fatigue'],
+  },
+  {
+    id: 'fallback-4',
+    text: 'Do you need support managing your medication routine?',
+    type: 'yesNo',
   },
 ];
 
-const FALLBACK_PROMPTS = [
-  'Did you take all of your scheduled medications today?',
-  'Did you sleep well last night?',
-  'Are you experiencing any discomfort right now?',
-];
-
-const normalizeText = (value) => (value || '').toString().toLowerCase();
-
-const collectKeywords = (history, complaints) => {
-  const source = `${normalizeText(history)} ${normalizeText(complaints)}`;
-  const matches = new Set();
-  QUESTION_LIBRARY.forEach((entry) => {
-    if (source.includes(entry.keyword)) {
-      matches.add(entry.keyword);
-    }
-  });
-  return matches;
+const normalizeList = (value) => {
+  if (!value) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,;\n]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
 };
 
-const generateQuestions = (history, complaints) => {
-  const keywords = collectKeywords(history, complaints);
-  const prompts = [];
-  QUESTION_LIBRARY.forEach((entry) => {
-    if (keywords.has(entry.keyword)) {
-      entry.prompts.forEach((prompt) => prompts.push({ id: `${entry.keyword}-${prompt}`, text: prompt }));
+const inferType = (entry) => {
+  const rawType = (entry.type || entry.responseType || '').toString().toLowerCase();
+  if (['scale', 'slider', 'range'].includes(rawType)) {
+    return 'scale';
+  }
+  if (['text', 'open', 'textarea', 'descriptive'].includes(rawType)) {
+    return 'text';
+  }
+  if (['multiple', 'multi', 'multi_choice', 'checkbox'].includes(rawType)) {
+    return 'multiple';
+  }
+  if (['single', 'single_choice', 'radio', 'select'].includes(rawType)) {
+    return 'single';
+  }
+  if (['boolean', 'yes_no', 'true_false'].includes(rawType)) {
+    return 'yesNo';
+  }
+  if (Array.isArray(entry.options) && entry.options.length > 0) {
+    const lowercaseOptions = entry.options.map((option) => option?.toString().toLowerCase());
+    if (lowercaseOptions.includes('yes') && lowercaseOptions.includes('no')) {
+      return 'yesNo';
     }
-  });
-
-  if (prompts.length === 0) {
-    FALLBACK_PROMPTS.forEach((prompt) => prompts.push({ id: `default-${prompt}`, text: prompt }));
+    return entry.maxSelections === 1 ? 'single' : 'multiple';
   }
-
-  // Always ensure at least three questions, pad with fallback as needed
-  while (prompts.length < 3) {
-    const fallback = FALLBACK_PROMPTS[prompts.length % FALLBACK_PROMPTS.length];
-    prompts.push({ id: `padding-${prompts.length}`, text: fallback });
+  if (typeof entry.min !== 'undefined' || entry.range) {
+    return 'scale';
   }
-
-  return prompts.slice(0, 6);
+  return 'yesNo';
 };
+
+const normalizeQuestions = (payload = []) => {
+  const source = Array.isArray(payload) && payload.length > 0 ? payload.slice(0, 6) : FALLBACK_QUESTIONS;
+
+  return source.map((entry, index) => {
+    if (typeof entry === 'string') {
+      return {
+        id: `ai-${index}`,
+        text: entry,
+        type: 'yesNo',
+      };
+    }
+
+    const question = entry || {};
+    const resolvedType = inferType(question);
+    const min = Number(question.min ?? question.range?.min ?? (resolvedType === 'scale' ? 1 : undefined));
+    const max = Number(question.max ?? question.range?.max ?? (resolvedType === 'scale' ? 5 : undefined));
+
+    return {
+      id: question.id || question.questionId || question.key || `ai-${index}`,
+      text: question.text || question.question || `Question ${index + 1}?`,
+      type: resolvedType === 'single' ? 'multiple' : resolvedType,
+      options: Array.isArray(question.options)
+        ? question.options.map((option) => (typeof option === 'string' ? option : option?.label || option?.value)).filter(Boolean)
+        : undefined,
+      min: Number.isFinite(min) ? min : undefined,
+      max: Number.isFinite(max) ? max : undefined,
+      step: Number.isFinite(question.step) ? question.step : undefined,
+      description: question.description || question.help || question.prompt,
+    };
+  });
+};
+
+const INITIAL_QUESTIONS = normalizeQuestions();
+
+const buildDefaultResponses = (questionList) =>
+  questionList.reduce((acc, question) => {
+    switch (question.type) {
+      case 'scale': {
+        const min = Number.isFinite(question.min) ? question.min : 1;
+        const max = Number.isFinite(question.max) ? question.max : 5;
+        acc[question.id] = Math.round((min + max) / 2);
+        break;
+      }
+      case 'multiple':
+        acc[question.id] = [];
+        break;
+      case 'text':
+        acc[question.id] = '';
+        break;
+      default:
+        acc[question.id] = null;
+    }
+    return acc;
+  }, {});
 
 const formatTimestamp = (value) => {
   if (!value) {
@@ -89,76 +153,208 @@ const formatTimestamp = (value) => {
   return parsed.toLocaleString();
 };
 
-const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
+const CheckupForm = ({ latestEntry, defaultHistory, onComplete }) => {
+  const normalizedHistory = useMemo(() => normalizeList(defaultHistory), [defaultHistory]);
+  const historyFingerprint = useMemo(() => normalizedHistory.join('|'), [normalizedHistory]);
   const [complaints, setComplaints] = useState('');
-  const [responses, setResponses] = useState({});
+  const [questions, setQuestions] = useState(() => INITIAL_QUESTIONS);
+  const [responses, setResponses] = useState(() => buildDefaultResponses(INITIAL_QUESTIONS));
+  const [loadingQuestions, setLoadingQuestions] = useState(false);
+  const [questionError, setQuestionError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
+  const [submitError, setSubmitError] = useState(null);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [result, setResult] = useState(latestEntry || null);
+  const requestKeyRef = useRef(null);
+  const controllerRef = useRef(null);
+  const mountedRef = useRef(true);
 
-  const questions = useMemo(
-    () => generateQuestions(defaultHistory, complaints),
-    [complaints, defaultHistory],
+  useEffect(() => () => {
+    mountedRef.current = false;
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+    }
+  }, []);
+
+  const applyQuestions = useCallback((nextQuestions) => {
+    if (!mountedRef.current) {
+      return;
+    }
+    setQuestions(nextQuestions);
+    setResponses(buildDefaultResponses(nextQuestions));
+  }, []);
+
+  const loadQuestions = useCallback(
+    async (complaintText, historyList) => {
+      const trimmedComplaint = complaintText?.trim() || '';
+      const historyKey = Array.isArray(historyList) ? historyList.join('|') : '';
+      const nextKey = `${historyKey}::${trimmedComplaint}`;
+
+      if (requestKeyRef.current === nextKey && questions.length > 0) {
+        return;
+      }
+
+      if (controllerRef.current) {
+        controllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      requestKeyRef.current = nextKey;
+      setLoadingQuestions(true);
+      setQuestionError(null);
+
+      try {
+        const { data } = await api.post(
+          'users/checkup/questions',
+          {
+            medicalHistory: historyList,
+            complaints: trimmedComplaint || undefined,
+            latestEntryId: latestEntry?.id || latestEntry?._id,
+            latestAnswers: latestEntry?.answers,
+          },
+          {
+            signal: controller.signal,
+          },
+        );
+
+        const nextQuestions = normalizeQuestions(data?.questions || data);
+        applyQuestions(nextQuestions);
+      } catch (err) {
+        if (axios.isCancel(err)) {
+          return;
+        }
+
+        console.error('Failed to generate AI questions', err);
+        setQuestionError(
+          err?.response?.data?.message
+            || err?.message
+            || 'Unable to generate AI-assisted questions. Using fallback prompts instead.',
+        );
+        applyQuestions(normalizeQuestions());
+      } finally {
+        if (mountedRef.current) {
+          setLoadingQuestions(false);
+        }
+      }
+    },
+    [applyQuestions, latestEntry, questions.length],
   );
 
   useEffect(() => {
-    setResponses((prev) => {
-      const next = {};
-      questions.forEach((question) => {
-        next[question.id] = Object.prototype.hasOwnProperty.call(prev, question.id) ? prev[question.id] : null;
-      });
-      return next;
-    });
-  }, [questions]);
+    loadQuestions('', normalizedHistory);
+  }, [historyFingerprint, loadQuestions, normalizedHistory]);
 
   useEffect(() => {
-    if (latestHealth) {
-      setResult(latestHealth);
+    if (!complaints || complaints.trim().length < 3) {
+      return undefined;
     }
-  }, [latestHealth]);
+    const handle = setTimeout(() => {
+      loadQuestions(complaints, normalizedHistory);
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [complaints, loadQuestions, normalizedHistory]);
 
-  const handleAnswer = (questionId, value) => {
+  useEffect(() => {
+    if (latestEntry) {
+      setResult(latestEntry);
+    }
+  }, [latestEntry]);
+
+  useEffect(() => {
+    if (!submitSuccess) {
+      return undefined;
+    }
+    const timeout = setTimeout(() => setSubmitSuccess(false), 4000);
+    return () => clearTimeout(timeout);
+  }, [submitSuccess]);
+
+  const handleBinaryAnswer = (questionId, value) => {
     setResponses((prev) => ({
       ...prev,
       [questionId]: value,
     }));
   };
 
+  const handleScaleAnswer = (questionId, value) => {
+    const numeric = Number(value);
+    setResponses((prev) => ({
+      ...prev,
+      [questionId]: Number.isNaN(numeric) ? prev[questionId] : numeric,
+    }));
+  };
+
+  const handleTextAnswer = (questionId, value) => {
+    setResponses((prev) => ({
+      ...prev,
+      [questionId]: value,
+    }));
+  };
+
+  const handleMultipleAnswer = (questionId, option) => {
+    setResponses((prev) => {
+      const current = Array.isArray(prev[questionId]) ? prev[questionId] : [];
+      const exists = current.includes(option);
+      return {
+        ...prev,
+        [questionId]: exists ? current.filter((item) => item !== option) : [...current, option],
+      };
+    });
+  };
+
   const isComplete = useMemo(
-    () => questions.every((question) => responses[question.id] !== null && responses[question.id] !== undefined),
+    () =>
+      questions.every((question) => {
+        const response = responses[question.id];
+        switch (question.type) {
+          case 'scale':
+            return typeof response === 'number';
+          case 'multiple':
+            return Array.isArray(response) && response.length > 0;
+          case 'text':
+            return typeof response === 'string' && response.trim().length > 0;
+          default:
+            return response === true || response === false;
+        }
+      }),
     [questions, responses],
   );
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setError(null);
+    setSubmitError(null);
 
     if (!isComplete) {
-      setError('Please answer every question before submitting.');
+      setSubmitError('Please answer every question before submitting.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const formattedResponses = questions.map((question) => ({
-        question: question.text,
-        answer: responses[question.id] ? 'yes' : 'no',
-      }));
-
       const payload = {
-        complaints: complaints || undefined,
-        medical_history: defaultHistory,
-        responses: formattedResponses,
+        complaints: complaints.trim() || undefined,
+        medicalHistory: normalizedHistory,
+        answers: questions.map((question) => ({
+          id: question.id,
+          question: question.text,
+          type: question.type,
+          response: responses[question.id],
+        })),
       };
 
-      const { data } = await api.post('health/check', payload);
-      setResult(data);
-      if (typeof onSubmitted === 'function') {
-        onSubmitted();
+      const { data } = await api.post('users/checkup/answers', payload);
+      const responseData = data?.result || data?.checkup || data;
+      setResult(responseData);
+      setSubmitSuccess(true);
+      setComplaints('');
+      requestKeyRef.current = null;
+      loadQuestions('', normalizedHistory);
+      if (typeof onComplete === 'function') {
+        onComplete();
       }
     } catch (err) {
       console.error('Failed to submit checkup', err);
-      setError(err?.response?.data?.message || err?.message || 'Unable to submit checkup right now.');
+      setSubmitError(err?.response?.data?.message || err?.message || 'Unable to submit checkup right now.');
     } finally {
       setSubmitting(false);
     }
@@ -172,7 +368,7 @@ const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
     return Array.isArray(source) ? source : [source];
   }, [result]);
 
-  const detectedRisk = (result?.adherence_risk || result?.risk_level || 'low').toLowerCase();
+  const detectedRisk = (result?.risk || result?.adherence_risk || result?.risk_level || 'low').toLowerCase();
   const severityTone = (() => {
     switch (detectedRisk) {
       case 'high':
@@ -184,13 +380,96 @@ const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
     }
   })();
 
+  const renderQuestion = (question) => {
+    const value = responses[question.id];
+
+    if (question.type === 'scale') {
+      const min = Number.isFinite(question.min) ? question.min : 1;
+      const max = Number.isFinite(question.max) ? question.max : 5;
+      const step = Number.isFinite(question.step) ? question.step : 1;
+      return (
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs font-semibold text-gray-500">
+            <span>{min}</span>
+            <span>{max}</span>
+          </div>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value ?? Math.round((min + max) / 2)}
+            onChange={(event) => handleScaleAnswer(question.id, event.target.value)}
+            className="mt-3 w-full accent-blue-600"
+          />
+          <p className="mt-1 text-sm font-semibold text-gray-700">Current value: {value}</p>
+        </div>
+      );
+    }
+
+    if (question.type === 'text') {
+      return (
+        <textarea
+          rows={3}
+          value={value || ''}
+          onChange={(event) => handleTextAnswer(question.id, event.target.value)}
+          className="mt-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          placeholder="Describe your experience..."
+        />
+      );
+    }
+
+    if (question.type === 'multiple' && Array.isArray(question.options)) {
+      return (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {question.options.map((option) => {
+            const checked = Array.isArray(value) && value.includes(option);
+            return (
+              <label
+                key={`${question.id}-${option}`}
+                className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-blue-500'}`}
+              >
+                <input
+                  type="checkbox"
+                  className="hidden"
+                  checked={checked}
+                  onChange={() => handleMultipleAnswer(question.id, option)}
+                />
+                {option}
+              </label>
+            );
+          })}
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition ${value === true ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-emerald-500 hover:text-emerald-600'}`}
+          onClick={() => handleBinaryAnswer(question.id, true)}
+        >
+          Yes
+        </button>
+        <button
+          type="button"
+          className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition ${value === false ? 'border-red-500 bg-red-500 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-red-500 hover:text-red-600'}`}
+          onClick={() => handleBinaryAnswer(question.id, false)}
+        >
+          No
+        </button>
+      </div>
+    );
+  };
+
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow" id="checkup">
       <form onSubmit={handleSubmit} className="space-y-6" aria-label="Daily checkup questionnaire">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Daily checkup</p>
-            <h2 className="text-xl font-semibold text-gray-900">Answer a quick yes/no questionnaire</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Answer a personalised questionnaire</h2>
             <p className="mt-1 text-sm text-gray-500">
               Questions adapt to your medical history and any complaints you add today.
             </p>
@@ -199,6 +478,12 @@ const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
             {detectedRisk.toUpperCase()}
           </span>
         </div>
+
+        {questionError && (
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700">
+            {questionError}
+          </div>
+        )}
 
         <div className="space-y-4">
           <label htmlFor="checkup-complaints" className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -215,35 +500,23 @@ const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
         </div>
 
         <div className="space-y-4">
-          {questions.map((question) => {
-            const value = responses[question.id];
-            return (
-              <div key={question.id} className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-sm font-semibold text-gray-900">{question.text}</p>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition ${value === true ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-emerald-500 hover:text-emerald-600'}`}
-                    onClick={() => handleAnswer(question.id, true)}
-                  >
-                    Yes
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition ${value === false ? 'border-red-500 bg-red-500 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-red-500 hover:text-red-600'}`}
-                    onClick={() => handleAnswer(question.id, false)}
-                  >
-                    No
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {loadingQuestions && (
+            <p className="text-xs text-gray-500">Generating questions tailored to your inputs…</p>
+          )}
+          {questions.map((question) => (
+            <div key={question.id} className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <p className="text-sm font-semibold text-gray-900">{question.text}</p>
+              {question.description && (
+                <p className="mt-1 text-xs text-gray-500">{question.description}</p>
+              )}
+              {renderQuestion(question)}
+            </div>
+          ))}
         </div>
 
-        {error && (
+        {submitError && (
           <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">
-            {error}
+            {submitError}
           </div>
         )}
 
@@ -254,15 +527,31 @@ const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
         >
           {submitting ? 'Submitting…' : 'Submit checkup'}
         </button>
+
+        {submitSuccess && (
+          <p className="text-center text-xs font-semibold text-emerald-600">Checkup submitted successfully.</p>
+        )}
       </form>
 
-      {(result || latestHealth) && (
+      {(result || latestEntry) && (
         <div className="mt-6 space-y-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900" aria-live="polite">
           <div className="flex items-center justify-between">
             <p className="font-semibold">Latest recommendations</p>
-            {formatTimestamp(result?.captured_at || result?.created_at || latestHealth?.captured_at || latestHealth?.created_at) && (
+            {formatTimestamp(
+              result?.captured_at
+                || result?.created_at
+                || latestEntry?.captured_at
+                || latestEntry?.created_at
+                || latestEntry?.date,
+            ) && (
               <span className="text-xs text-blue-600">
-                {`Updated ${formatTimestamp(result?.captured_at || result?.created_at || latestHealth?.captured_at || latestHealth?.created_at)}`}
+                {`Updated ${formatTimestamp(
+                  result?.captured_at
+                    || result?.created_at
+                    || latestEntry?.captured_at
+                    || latestEntry?.created_at
+                    || latestEntry?.date,
+                )}`}
               </span>
             )}
           </div>
@@ -282,7 +571,10 @@ const CheckupForm = ({ latestHealth, defaultHistory, onSubmitted }) => {
 };
 
 CheckupForm.propTypes = {
-  latestHealth: PropTypes.shape({
+  latestEntry: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    risk: PropTypes.string,
     adherence_risk: PropTypes.string,
     risk_level: PropTypes.string,
     recommendation: PropTypes.oneOfType([
@@ -295,15 +587,20 @@ CheckupForm.propTypes = {
     ]),
     captured_at: PropTypes.string,
     created_at: PropTypes.string,
+    date: PropTypes.string,
+    answers: PropTypes.array,
   }),
-  defaultHistory: PropTypes.string,
-  onSubmitted: PropTypes.func,
+  defaultHistory: PropTypes.oneOfType([
+    PropTypes.arrayOf(PropTypes.string),
+    PropTypes.string,
+  ]),
+  onComplete: PropTypes.func,
 };
 
 CheckupForm.defaultProps = {
-  latestHealth: null,
-  defaultHistory: '',
-  onSubmitted: undefined,
+  latestEntry: null,
+  defaultHistory: [],
+  onComplete: undefined,
 };
 
 export default CheckupForm;

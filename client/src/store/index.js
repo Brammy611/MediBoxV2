@@ -16,6 +16,17 @@ const initialEntities = {
   refillRequests: [],
   medicines: [],
   mediboxes: [],
+  familyHistory: [],
+  familyAlerts: [],
+  familyBoxStatus: null,
+  familyProfile: null,
+  userDashboard: null,
+  userHistory: [],
+  userBoxStatus: null,
+  userSchedule: [],
+  userProfile: null,
+  userCheckupQuestions: [],
+  userCheckupHistory: [],
 };
 
 const initialUIState = {

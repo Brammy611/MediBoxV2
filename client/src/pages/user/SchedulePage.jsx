@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo } from 'react';
+
+import React, { useCallback } from 'react';
 import Alerts from '../../components/Alerts.jsx';
 import MedicineSchedule from '../../components/MedicineSchedule.jsx';
 import useResource from '../../hooks/useResource';
@@ -6,89 +7,52 @@ import api from '../../api/axios';
 
 const SchedulePage = () => {
 	const {
-		data: reminders = [],
-		loading: remindersLoading,
-		error: remindersError,
-		refetch: refetchReminders,
-	} = useResource('reminders', 'reminders', {
-		params: { scope: 'active' },
+		data: scheduleData,
+		loading,
+		error,
+		refetch,
+	} = useResource('userSchedule', 'users/schedule', {
+		transform: (payload) => ({
+			schedule: Array.isArray(payload?.schedule) ? payload.schedule : [],
+			alerts: Array.isArray(payload?.alerts) ? payload.alerts : [],
+			stats: payload?.stats || {},
+			generatedAt: payload?.generated_at,
+		}),
 	});
 
-	const {
-		data: alerts = [],
-		loading: alertsLoading,
-		error: alertsError,
-		refetch: refetchAlerts,
-	} = useResource('alerts', 'alerts');
+	const reminders = scheduleData?.schedule || [];
+	const alerts = scheduleData?.alerts || [];
+	const stats = scheduleData?.stats || {};
 
-	const { refetch: refetchHealthReports } = useResource('healthReports', 'health/reports', {
-		params: { limit: 1 },
-		transform: (data) => (Array.isArray(data) ? data : [data].filter(Boolean)),
-		auto: false,
-	});
-
-	const insights = useMemo(() => {
-		const parseDate = (value) => {
-			if (!value) {
-				return null;
-			}
-			const parsed = new Date(value);
-			return Number.isNaN(parsed.getTime()) ? null : parsed;
-		};
-
-		const enriched = (Array.isArray(reminders) ? reminders : [])
-			.map((reminder) => ({
-				...reminder,
-				scheduledAt: parseDate(reminder.time || reminder.scheduled_time || reminder.reminder_time),
-			}))
-			.filter((reminder) => reminder.scheduledAt instanceof Date)
-			.sort((a, b) => a.scheduledAt - b.scheduledAt);
-
-		const now = new Date();
-		const nextReminder = enriched.find((entry) => entry.scheduledAt && entry.scheduledAt >= now) || enriched[0] || null;
-		const overdue = enriched.filter((entry) => entry.scheduledAt && entry.scheduledAt < now).length;
-		const upcoming = enriched.filter((entry) => entry.scheduledAt && entry.scheduledAt >= now).length;
-
-		return {
-			nextReminder,
-			overdue,
-			upcoming,
-			total: enriched.length,
-		};
-	}, [reminders]);
-
-	const nextReminderLabel = insights.nextReminder?.scheduledAt
-		? insights.nextReminder.scheduledAt.toLocaleString()
+	const nextReminderLabel = stats.nextReminderTime
+		? (() => {
+			const parsed = new Date(stats.nextReminderTime);
+			return Number.isNaN(parsed.getTime()) ? stats.nextReminderTime : parsed.toLocaleString();
+		})()
 		: 'Nothing scheduled';
 
-	const nextReminderName = insights.nextReminder?.medicine_name
-		|| insights.nextReminder?.name
-		|| insights.nextReminder?.message
-		|| 'All caught up';
+	const nextReminderName = stats.nextReminderName || 'All caught up';
+	const upcomingCount = stats.upcoming ?? reminders.length;
+	const missedCount = stats.missed ?? 0;
+	const totalCount = stats.total ?? reminders.length;
 
-	const errorMessage = remindersError || alertsError;
-	const isLoading = remindersLoading || alertsLoading;
-
-	const handleConfirmIntake = useCallback(
-		async (reminder) => {
-			if (!reminder?.id && !reminder?._id) {
+	const handleUpdateStatus = useCallback(
+		async (reminder, status) => {
+			const identifier = reminder.schedule_id || reminder.id || reminder._id;
+			if (!identifier) {
 				return;
 			}
 			try {
-				await api.post('intake/logs', {
-					reminder_id: reminder.id || reminder._id,
-					confirmed: true,
+				await api.put('users/schedule/update', {
+					scheduleId: identifier,
+					status,
 				});
-				await Promise.all([
-					refetchReminders(),
-					refetchAlerts(),
-					refetchHealthReports(),
-				]);
+				await refetch();
 			} catch (err) {
-				console.error('Failed to log intake confirmation', err);
+				console.error('Failed to update schedule entry', err);
 			}
 		},
-		[refetchAlerts, refetchHealthReports, refetchReminders],
+		[refetch],
 	);
 
 	return (
@@ -110,8 +74,8 @@ const SchedulePage = () => {
 						</div>
 						<div className="rounded-2xl border border-white/40 bg-white/10 p-4 text-sm shadow-lg">
 							<p className="text-xs uppercase tracking-wide text-blue-100">Alerts</p>
-							<p className="mt-2 text-lg font-semibold">{Array.isArray(alerts) ? alerts.length : 0}</p>
-							<p className="text-xs text-blue-100">{insights.overdue} overdue doses detected</p>
+							<p className="mt-2 text-lg font-semibold">{alerts.length}</p>
+							<p className="text-xs text-blue-100">{missedCount} overdue doses detected</p>
 						</div>
 					</div>
 				</div>
@@ -120,25 +84,25 @@ const SchedulePage = () => {
 			<section className="grid gap-4 sm:grid-cols-3">
 				<div className="rounded-2xl border border-gray-800 bg-gray-900 px-4 py-5 text-gray-200">
 					<p className="text-xs uppercase tracking-wide text-gray-400">Upcoming</p>
-					<p className="mt-2 text-2xl font-semibold text-white">{insights.upcoming}</p>
+					<p className="mt-2 text-2xl font-semibold text-white">{upcomingCount}</p>
 				</div>
 				<div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-5 text-red-100">
 					<p className="text-xs uppercase tracking-wide text-red-200">Missed</p>
-					<p className="mt-2 text-2xl font-semibold text-white">{insights.overdue}</p>
+					<p className="mt-2 text-2xl font-semibold text-white">{missedCount}</p>
 				</div>
 				<div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 px-4 py-5 text-blue-100">
 					<p className="text-xs uppercase tracking-wide text-blue-200">Total scheduled</p>
-					<p className="mt-2 text-2xl font-semibold text-white">{insights.total}</p>
+					<p className="mt-2 text-2xl font-semibold text-white">{totalCount}</p>
 				</div>
 			</section>
 
-			{errorMessage && (
+			{error && (
 				<div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-					{errorMessage}
+					{error}
 				</div>
 			)}
 
-			{isLoading && (
+			{loading && (
 				<div className="rounded-2xl border border-gray-800 bg-gray-900 px-4 py-3 text-sm text-gray-300">
 					Syncing schedule…
 				</div>
@@ -146,11 +110,11 @@ const SchedulePage = () => {
 
 			<MedicineSchedule
 				reminders={reminders}
-				loading={remindersLoading}
-				onConfirmIntake={handleConfirmIntake}
+				loading={loading}
+				onUpdateStatus={handleUpdateStatus}
 			/>
 
-			<Alerts alerts={alerts} loading={alertsLoading} />
+			<Alerts alerts={alerts} loading={loading} />
 		</div>
 	);
 };
