@@ -1,32 +1,29 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import useStore from '../store';
+import useResource from '../hooks/useResource';
 
 const linksByRole = {
   user: [
-    { to: '/', label: 'Dashboard', exact: true },
-    { to: '/family', label: 'Family View' },
+    { to: '/dashboard', label: 'Dashboard', exact: true },
+    { to: '/schedule', label: 'Schedule' },
+    { to: '/checkup', label: 'Checkup' },
+    { to: '/profile', label: 'Profile' },
   ],
   family: [
     { to: '/family', label: 'Family Dashboard', exact: true },
-    { to: '/', label: 'User Dashboard' },
+    { to: '/dashboard', label: 'User Dashboard' },
   ],
   pharmacist: [
     { to: '/pharmacist', label: 'Pharmacist Dashboard', exact: true },
-    { to: '/', label: 'User Dashboard' },
+    { to: '/dashboard', label: 'User Dashboard' },
   ],
 };
 
 const AppLayout = () => {
   const { user, role, clearAuth } = useAuth();
-  const {
-    ui,
-    reminders,
-    healthReports,
-    refillRequests,
-    adherenceLogs,
-  } = useStore((state) => ({
+  const { ui, reminders, healthReports, refillRequests, adherenceLogs } = useStore((state) => ({
     ui: state.ui,
     reminders: state.entities.reminders,
     healthReports: state.entities.healthReports,
@@ -35,12 +32,31 @@ const AppLayout = () => {
   }));
   const [navOpen, setNavOpen] = useState(false);
 
+  const shouldBootstrapUserData = role === 'user';
+  const { refetch: refetchReminders } = useResource('reminders', 'reminders', {
+    params: { scope: 'active' },
+    auto: false,
+  });
+  const { refetch: refetchHealthReports } = useResource('healthReports', 'health/reports', {
+    params: { limit: 1 },
+    transform: (data) => (Array.isArray(data) ? data : [data].filter(Boolean)),
+    auto: false,
+  });
+
+  useEffect(() => {
+    if (!shouldBootstrapUserData) {
+      return;
+    }
+    refetchReminders().catch(() => {});
+    refetchHealthReports().catch(() => {});
+  }, [shouldBootstrapUserData, refetchReminders, refetchHealthReports]);
+
   // 🧭 Tentukan navigasi berdasarkan role
   const navLinks = useMemo(() => {
     if (role === 'user') {
-      return [];
+      return linksByRole.user;
     }
-    const defaultLinks = [{ to: '/', label: 'Dashboard', exact: true }];
+    const defaultLinks = [{ to: '/dashboard', label: 'Dashboard', exact: true }];
     if (!role) return defaultLinks;
     return linksByRole[role] || defaultLinks;
   }, [role]);
@@ -121,16 +137,18 @@ const AppLayout = () => {
 
   const isUserRole = role === 'user';
 
-  const userSidebarSections = useMemo(() => (
-    [
+  const userSidebarSections = useMemo(
+    () => ([
       {
         id: 'dashboard',
+        path: '/dashboard',
         title: 'Dashboard',
         description: 'Medication history overview',
         highlight: `${metrics.historyEntries} records`,
       },
       {
         id: 'schedule',
+        path: '/schedule',
         title: 'Schedule',
         description: 'Upcoming reminders & alerts',
         highlight: `${metrics.upcomingCount} upcoming`,
@@ -138,18 +156,21 @@ const AppLayout = () => {
       },
       {
         id: 'checkup',
+        path: '/checkup',
         title: 'Checkup',
         description: 'Daily health questionnaire',
         highlight: metrics.healthRisk ? metrics.healthRisk.toUpperCase() : 'N/A',
       },
       {
         id: 'profile',
+        path: '/profile',
         title: 'Profile',
         description: 'Personal health context',
         highlight: user?.email || displayName,
       },
-    ]
-  ), [displayName, metrics, user?.email]);
+    ]),
+    [displayName, metrics, user?.email],
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-black text-gray-100">
@@ -242,11 +263,18 @@ const AppLayout = () => {
                 <div className="space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Your sections</p>
                   {userSidebarSections.map((section) => (
-                    <a
+                    <NavLink
                       key={section.id}
-                      href={`#${section.id}`}
+                      to={section.path}
+                      end={section.path === '/dashboard'}
                       onClick={closeNavigation}
-                      className="block rounded-xl border border-transparent bg-gray-800 px-4 py-3 text-sm text-gray-200 transition hover:border-blue-500 hover:bg-gray-800 hover:text-white"
+                      className={({ isActive }) =>
+                        `block rounded-xl border px-4 py-3 text-sm transition ${
+                          isActive
+                            ? 'border-blue-500 bg-blue-600 text-white shadow-lg'
+                            : 'border-transparent bg-gray-800 text-gray-200 hover:border-blue-500 hover:bg-gray-800 hover:text-white'
+                        }`
+                      }
                     >
                       <div className="flex items-center justify-between">
                         <div>
@@ -262,7 +290,7 @@ const AppLayout = () => {
                           {section.badge}
                         </p>
                       )}
-                    </a>
+                    </NavLink>
                   ))}
                 </div>
               ) : (

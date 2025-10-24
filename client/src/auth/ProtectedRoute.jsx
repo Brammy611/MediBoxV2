@@ -4,7 +4,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
 
 const roleHome = {
-  user: '/',
+  user: '/dashboard',
   family: '/family',
   pharmacist: '/pharmacist',
 };

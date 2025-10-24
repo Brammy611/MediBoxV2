@@ -39,7 +39,7 @@ const LoginPage = () => {
       });
 
       const roleHomes = {
-        user: '/',
+        user: '/dashboard',
         family: '/family',
         pharmacist: '/pharmacist',
       };
@@ -51,7 +51,7 @@ const LoginPage = () => {
           return false;
         }
         if (resolvedRole === 'user') {
-          return requestedPath === '/' || requestedPath.startsWith('/user');
+          return requestedPath === '/' || requestedPath.startsWith('/dashboard');
         }
         if (resolvedRole === 'family') {
           return requestedPath.startsWith('/family');
@@ -66,8 +66,8 @@ const LoginPage = () => {
         if (isRequestedPathAllowed) {
           return requestedPath;
         }
-        if (resolvedRole === 'user' && fromPath === '/') {
-          return '/';
+        if (resolvedRole === 'user' && (fromPath === '/' || fromPath === '/dashboard')) {
+          return '/dashboard';
         }
         return roleDefault;
       })();

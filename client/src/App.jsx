@@ -5,9 +5,12 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import AppLayout from './layouts/AppLayout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
-import UserDashboard from './pages/UserDashboard';
 import FamilyDashboard from './pages/FamilyDashboard';
 import PharmacistDashboard from './pages/PharmacistDashboard';
+import DashboardPage from './pages/user/DashboardPage';
+import SchedulePage from './pages/user/SchedulePage';
+import CheckupPage from './pages/user/CheckupPage';
+import ProfilePage from './pages/user/ProfilePage';
 
 const App = () => (
   <Router>
@@ -23,11 +26,36 @@ const App = () => (
             </ProtectedRoute>
           )}
         >
+          <Route index element={<Navigate to="dashboard" replace />} />
           <Route
-            index
+            path="dashboard"
             element={(
               <ProtectedRoute allowedRoles={["user"]}>
-                <UserDashboard />
+                <DashboardPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="schedule"
+            element={(
+              <ProtectedRoute allowedRoles={["user"]}>
+                <SchedulePage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="checkup"
+            element={(
+              <ProtectedRoute allowedRoles={["user"]}>
+                <CheckupPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="profile"
+            element={(
+              <ProtectedRoute allowedRoles={["user"]}>
+                <ProfilePage />
               </ProtectedRoute>
             )}
           />
